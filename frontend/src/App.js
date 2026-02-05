@@ -7,7 +7,7 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   // CHANGE THIS: Replace with your VM's external IP
-  const BACKEND_URL = 'http://YOUR_VM_IP:8000';
+  const BACKEND_URL = 'http://34.31.198.69:8000';
 
   useEffect(() => {
     // Fetch backend status
