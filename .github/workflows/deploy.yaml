@@ -1,0 +1,145 @@
+name: Deploy to GCP VM
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy: 
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      
+      - name: Get VM External IP
+        id: get_ip
+        run: |
+          IP=$(gcloud compute instances describe ${{ secrets.GCP_VM_NAME }} \
+            --zone=${{ secrets.GCP_VM_ZONE }} \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+          echo "vm_ip=$IP" >> $GITHUB_OUTPUT
+      
+      - name: Deploy to GCP VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.get_ip.outputs.vm_ip }}
+          username: ${{ secrets.GCP_VM_USERNAME }}
+          key: ${{ secrets.GCP_VM_SSH_KEY }}
+          port: 22
+          command_timeout: 10m
+          script: |
+            set -e
+            
+            # Variables
+            APP_DIR="/home/${{ secrets.GCP_VM_USERNAME }}/app"
+            BACKEND_SERVICE="fastapi-backend"
+            FRONTEND_SERVICE="react-frontend"
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+            
+            # Setup application directory
+            mkdir -p $APP_DIR
+            cd $APP_DIR
+            
+            # Clone or update repository
+            if [ ! -d ".git" ]; then
+              git clone "$REPO_URL" .
+            else
+              git fetch origin
+              git reset --hard origin/main
+            fi
+            
+            # ===== BACKEND SETUP =====
+            cd $APP_DIR
+            
+            # Create virtual environment if it doesn't exist
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            
+            # Activate and install dependencies
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            # Create backend systemd service
+            sudo tee /etc/systemd/system/${BACKEND_SERVICE}.service > /dev/null <<EOF
+            [Unit]
+            Description=FastAPI Backend Service
+            After=network.target
+            
+            [Service]
+            User=${{ secrets.GCP_VM_USERNAME }}
+            WorkingDirectory=$APP_DIR
+            ExecStart=$APP_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+            Restart=always
+            RestartSec=5
+            Environment=PATH=$APP_DIR/venv/bin
+            
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            
+            # ===== FRONTEND SETUP =====
+            cd $APP_DIR/frontend
+            
+            # Install Node.js if not present
+            if ! command -v node &> /dev/null; then
+              curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+            
+            # Install dependencies and build
+            npm install
+            npm run build
+            
+            # Install serve globally if not present
+            if ! command -v serve &> /dev/null; then
+              sudo npm install -g serve
+            fi
+            
+            # Create frontend systemd service
+            sudo tee /etc/systemd/system/${FRONTEND_SERVICE}.service > /dev/null <<EOF
+            [Unit]
+            Description=React Frontend Service
+            After=network.target
+            
+            [Service]
+            User=${{ secrets.GCP_VM_USERNAME }}
+            WorkingDirectory=$APP_DIR/frontend
+            ExecStart=/usr/bin/serve -s build -l 3000
+            Restart=always
+            RestartSec=5
+            
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            
+            # ===== START SERVICES =====
+            sudo systemctl daemon-reload
+            
+            # Backend
+            sudo systemctl enable ${BACKEND_SERVICE}
+            sudo systemctl restart ${BACKEND_SERVICE}
+            
+            # Frontend
+            sudo systemctl enable ${FRONTEND_SERVICE}
+            sudo systemctl restart ${FRONTEND_SERVICE}
+            
+            # Check status
+            echo "===== Backend Status ====="
+            sudo systemctl status ${BACKEND_SERVICE} --no-pager
+            echo ""
+            echo "===== Frontend Status ====="
+            sudo systemctl status ${FRONTEND_SERVICE} --no-pager
