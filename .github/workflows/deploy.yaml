@@ -63,10 +63,17 @@ jobs:
             # ===== BACKEND SETUP =====
             cd $APP_DIR
             
-            # Create virtual environment if it doesn't exist
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
+            # Install python3-venv and pip if not available
+            if ! dpkg -l | grep -q python3-venv; then
+              sudo apt-get update -qq
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-venv python3-pip
             fi
+            
+            # Remove broken venv if exists
+            rm -rf venv
+            
+            # Create virtual environment
+            python3 -m venv venv
             
             # Activate and install dependencies
             source venv/bin/activate
@@ -97,7 +104,7 @@ jobs:
             # Install Node.js if not present
             if ! command -v node &> /dev/null; then
               curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-              sudo apt-get install -y nodejs
+              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
             fi
             
             # Install dependencies and build
