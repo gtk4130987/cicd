@@ -38,7 +38,7 @@ jobs:
           username: ${{ secrets.GCP_VM_USERNAME }}
           key: ${{ secrets.GCP_VM_SSH_KEY }}
           port: 22
-          command_timeout: 10m
+          command_timeout: 30m
           script: |
             set -e
             
@@ -103,12 +103,12 @@ jobs:
             
             # Install Node.js if not present
             if ! command -v node &> /dev/null; then
-              curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
               sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
             fi
             
             # Install dependencies and build
-            npm install
+            npm install --legacy-peer-deps --no-audit --no-fund
             npm run build
             
             # Install serve globally if not present
