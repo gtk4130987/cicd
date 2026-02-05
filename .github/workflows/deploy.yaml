@@ -125,7 +125,7 @@ jobs:
             [Service]
             User=${{ secrets.GCP_VM_USERNAME }}
             WorkingDirectory=$APP_DIR/frontend
-            ExecStart=/usr/bin/serve -s build -l 3000
+            ExecStart=/usr/bin/serve -s build -l 3000 -n
             Restart=always
             RestartSec=5
             
